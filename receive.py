@@ -2,7 +2,7 @@ import RPi.GPIO as GPIO
 import time
 
 # GPIO 핀 설정
-RECEIVER_PIN = 187 
+RECEIVER_PIN = 17 
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(RECEIVER_PIN, GPIO.IN)
 
