@@ -23,6 +23,7 @@ def receive_message():
         if not current_state:
             duration = current_time - last_time
             if duration >= BIT_DURATION * 10:  # 종료 신호
+                print(binary_message)
                 break
             elif duration >= THRESHOLD_DURATION:
                 binary_message += '1' if duration >= BIT_DURATION else '0'
