@@ -2,15 +2,15 @@ import RPi.GPIO as GPIO
 import time
 
 # GPIO 핀 설정
-RECEIVER_PIN = 18  # 수신할 레이저 센서 핀 번호
+RECEIVER_PIN = 187 
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(RECEIVER_PIN, GPIO.IN)
 
 # 비트 전송 간격과 임계치 (수신 속도와 노이즈 필터링 조정)
 TRANSMISSION_SPEED = 0.02
-THRESHOLD_DURATION = TRANSMISSION_SPEED / 2
 
-def receive_message():
+def receive_message(speed=TRANSMISSION_SPEED):
+    THRESHOLD_DURATION = speed / 2
     binary_message = ''
     last_time = time.time()
     
@@ -22,10 +22,10 @@ def receive_message():
         # 신호가 꺼진 경우
         if not current_state:
             duration = current_time - last_time
-            if duration >= TRANSMISSION_SPEED * 10:  # 종료 신호
+            if duration >= speed * 10:  # 종료 신호
                 break
             elif duration >= THRESHOLD_DURATION:
-                binary_message += '1' if duration >= TRANSMISSION_SPEED else '0'
+                binary_message += '1' if duration >= speed else '0'
                 last_time = current_time
     
     # 아스키 코드로 변환
@@ -35,11 +35,6 @@ def receive_message():
     )
     return message
 
-try:
-    while True:
-        received = receive_message()
-        print(f"Received: {received}")
-except KeyboardInterrupt:
-    print("Reception stopped.")
-finally:
+
+def cleanup():
     GPIO.cleanup()
