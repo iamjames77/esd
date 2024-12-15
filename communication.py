@@ -16,7 +16,10 @@ GPIO.setup(RECEIVER_PIN, GPIO.IN)
 polynomial = 0b1011
 crc_bits = 3
 
-send_stack = []
+send_list = []
+list_pointer = 0
+
+timeout = 5
 
 def compute_CRC(data, polynomial, crc_bits):
     data += '0' * crc_bits
@@ -44,13 +47,22 @@ def send_bit(bits):
     GPIO.output(LASER_PIN, GPIO.LOW)
 
 def send_protocol(protocol):
-    if protocol == 'msg':
+    if protocol == 'MSG':
         send_bit('111110')
+    elif protocol == 'HANDSHAKE':
+        send_bit('110111')
+    elif protocol == 'HANDSHAKE REPLY':
+        send_bit('110110')
 
 def send_msg_size(msg_size):
     msg_size_bit = f'{msg_size:04b}'
     send_bit(msg_size_bit)
-    print(msg_size_bit)
+    
+
+def send_msg_index(index):
+    msg_index = f'{index:06b}'
+    send_bit(msg_index)
+
 
 def send_message(message):
     Total_message = ''
@@ -67,7 +79,8 @@ def receive_bit(bit_count):
         time.sleep(BIT_DURATION)
     return received_bit
 
-def receive_protocol():
+def receive_protocol(timeout):
+    start_time = time.time()
     while True:
         current_state = 0 if GPIO.input(RECEIVER_PIN) == GPIO.HIGH else 1
         if current_state:
@@ -75,9 +88,15 @@ def receive_protocol():
             received_protocol = receive_bit(5)
             print(received_protocol)
             if (received_protocol == '11110'):
-                print("connected")
                 return 'MSG RECEIVE'
+            elif (received_protocol == '10111'):
+                return 'HANDSHAKE'
+            elif (received_protocol == '10110'):
+                return 'HANDSHAKE REPLY'
         time.sleep(BIT_DURATION)
+
+        if (time.time() - start_time >= timeout):
+            return
 
 def receive_msg_size():
     msg_size_bit = receive_bit(4)
@@ -89,7 +108,7 @@ def receive_msg_size():
 def receive_message(msg_size):
     msg_bit = receive_bit(msg_size * 8)
     crc_bit = receive_bit(crc_bits)
-    if(compute_CRC(msg_bit) == crc_bit):
+    if(compute_CRC(msg_bit, polynomial, crc_bits) == crc_bit):
         # 8비트씩 읽어 아스키 문자로 변환
         message = ''.join(
             chr(int(msg_bit[i:i+8], 2))
@@ -104,21 +123,33 @@ def sender_thread():
         while True:
             message = input("Enter message to send: ")
             #프로토콜 전송
-            send_protocol('msg')
             msg_size = len(message)
-            #메시지의 크가 15를 초과하는 경우 나눠서 전송
+            msg_chunk = msg_size // 15
+            #메시지의 크기가 15를 초과하는 경우 나눠서 전송
+            fail_count = 0
+            while True:
+                send_protocol('HANDSHAKE')
+                send_msg_size(msg_chunk)
+                received_protocol = receive_protocol(5)
+                if (received_protocol == 'HANDSHAKE REPLY'):
+                    received_msg_size = receive_msg_size()
+                    if(msg_chunk == received_msg_size):
+                        break
+                fail_count += 1
+                print(f'fail_count {fail_count}/10')
+                if(fail_count == 10):
+                    break
+            if (fail_count == 10):
+                print("connection error")
+                continue
             byte_sent = 0
+            global list_pointer
             while byte_sent < msg_size:
                 msg_chunk_size = 15 if byte_sent + 15 < msg_size else msg_size - byte_sent
-                send_stack.append([msg_chunk_size, message[byte_sent:byte_sent + msg_chunk_size]])
+                send_list.append([msg_chunk_size, list_pointer, message[byte_sent:byte_sent + msg_chunk_size]])
+                laser(list_pointer)
+                list_pointer += 1
                 byte_sent += msg_chunk_size
-            while len(send_stack):
-                top_send_element = send_stack.pop()
-                send_msg_size(top_send_element[0])
-                Total_message = send_message(top_send_element[1])
-                crc = compute_CRC(Total_message, polynomial, crc_bits)
-                send_bit(crc)
-            print(f"Message sent at {time.time()}, TRANSMISSION_SPEED: {BIT_DURATION}")
     except KeyboardInterrupt:
         print("Transmitter stopped.")
     finally:
@@ -127,7 +158,10 @@ def sender_thread():
 def receiver_thread():
     try:
         while True:
-            received_protocol = receive_protocol()
+            while (received_protocol = receive_protocol(float('inf'))) == 'HANDSHAKE:
+                received_msg_size = receive_msg_size()
+                send_protocol('HANDSHAKE REPLY')
+                send_msg_size(received_msg_size)
             if(received_protocol == 'MSG RECEIVE'):
                 received_message = ''
                 while True:
@@ -141,12 +175,22 @@ def receiver_thread():
     finally:
         GPIO.cleanup()
 
+def laser(index):
+    top_send_element = send_list[index]
+    send_msg_size(top_send_element[0])
+    send_msg_index(top_send_element[1])
+    Total_message = send_message(top_send_element[2])
+    crc = compute_CRC(Total_message, polynomial, crc_bits)
+    send_bit(crc)
+    print(f"Message sent at {time.time()}, TRANSMISSION_SPEED: {BIT_DURATION}")
+
+
 if __name__ == "__main__":
     try:
         # 송신 및 수신을 위한 쓰레드 생성
         sender = threading.Thread(target=sender_thread, daemon=True)
         receiver = threading.Thread(target=receiver_thread, daemon=True)
-        
+
         # 쓰레드 시작
         sender.start()
         receiver.start()
