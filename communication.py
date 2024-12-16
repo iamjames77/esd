@@ -60,7 +60,7 @@ def send_msg_size(msg_size):
     
 
 def send_msg_index(index):
-    msg_index = f'{index:06b}'
+    msg_index = f'{index:08b}'
     send_bit(msg_index)
 
 
@@ -116,7 +116,9 @@ def receive_message(msg_size):
         )
         return message
     else:
-        print('error')
+        send_protocol('RESEND')
+        send_bit(msg_index)
+        return '!!ERROR!!'
 
 def sender_thread():
     try:
@@ -124,16 +126,19 @@ def sender_thread():
             message = input("Enter message to send: ")
             #프로토콜 전송
             msg_size = len(message)
-            msg_chunk = msg_size // 15
+            msg_chunk = msg_size // 15 + 1
             #메시지의 크기가 15를 초과하는 경우 나눠서 전송
             fail_count = 0
+            global list_pointer
             while True:
                 send_protocol('HANDSHAKE')
                 send_msg_size(msg_chunk)
-                received_protocol = receive_protocol(5)
+                received_protocol = receive_protocol(3)
                 if (received_protocol == 'HANDSHAKE REPLY'):
+                    print('HANDSHAKE REPLY')
                     received_msg_size = receive_msg_size()
-                    if(msg_chunk == received_msg_size):
+                    msg_index = send_msg_index(list_pointer)
+                    if(msg_chunk == received_msg_size and msg_index == list_pointer):
                         break
                 fail_count += 1
                 print(f'fail_count {fail_count}/10')
@@ -143,7 +148,6 @@ def sender_thread():
                 print("connection error")
                 continue
             byte_sent = 0
-            global list_pointer
             while byte_sent < msg_size:
                 msg_chunk_size = 15 if byte_sent + 15 < msg_size else msg_size - byte_sent
                 send_list.append([msg_chunk_size, list_pointer, message[byte_sent:byte_sent + msg_chunk_size]])
@@ -158,17 +162,18 @@ def sender_thread():
 def receiver_thread():
     try:
         while True:
-            while (received_protocol = receive_protocol(float('inf'))) == 'HANDSHAKE:
-                received_msg_size = receive_msg_size()
+            while (received_protocol := receive_protocol(float('inf'))) == 'HANDSHAKE':
+                received_chunk = receive_msg_size()
+                received_index = receive_bit(8)
                 send_protocol('HANDSHAKE REPLY')
-                send_msg_size(received_msg_size)
+                send_msg_size(received_chunk)
             if(received_protocol == 'MSG RECEIVE'):
                 received_message = ''
-                while True:
-                    msg_size = receive_msg_size()
-                    if (msg_size == 0):
-                        break
-                    received_message += receive_message(msg_size)     
+                received_message = [0] * received_chunk
+                msg_size = receive_msg_size()
+                while msg_size !=0 :
+                    chunk_index = receive_bit(8)
+                    received_message[chunk_index - received_index] = receive_message(msg_size)    
                 print(f"Received message: {received_message}, Time: {time.time()}, Transmission Speed: {BIT_DURATION}")
     except KeyboardInterrupt:
         print("Receiver stopped.")
