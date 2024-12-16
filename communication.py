@@ -1,6 +1,5 @@
 import threading
 import time
-import crc
 import RPi.GPIO as GPIO
 
 # GPIO 핀 설정
@@ -133,11 +132,12 @@ def sender_thread():
             while True:
                 send_protocol('HANDSHAKE')
                 send_msg_size(msg_chunk)
+                send_msg_index(list_pointer)
                 received_protocol = receive_protocol(3)
                 if (received_protocol == 'HANDSHAKE REPLY'):
                     print('HANDSHAKE REPLY')
                     received_msg_size = receive_msg_size()
-                    msg_index = send_msg_index(list_pointer)
+                    msg_index = receive_bit(8)
                     if(msg_chunk == received_msg_size and msg_index == list_pointer):
                         break
                 fail_count += 1
