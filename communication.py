@@ -1,5 +1,6 @@
 import threading
 import time
+import crc
 import RPi.GPIO as GPIO
 
 # GPIO 핀 설정
@@ -52,6 +53,8 @@ def send_protocol(protocol):
         send_bit('110111')
     elif protocol == 'HANDSHAKE REPLY':
         send_bit('110110')
+    elif protocol == 'RESEND':
+        send_bit('111010')
 
 def send_msg_size(msg_size):
     msg_size_bit = f'{msg_size:04b}'
@@ -92,6 +95,8 @@ def receive_protocol(timeout):
                 return 'HANDSHAKE'
             elif (received_protocol == '10110'):
                 return 'HANDSHAKE REPLY'
+            elif (receive_protocol == '11010'):
+                return 'RESEND'
         time.sleep(BIT_DURATION)
 
         if (time.time() - start_time >= timeout):
@@ -138,7 +143,8 @@ def sender_thread():
                     print('HANDSHAKE REPLY')
                     received_msg_size = receive_msg_size()
                     msg_index = receive_bit(8)
-                    if(msg_chunk == received_msg_size and msg_index == list_pointer):
+                    print(f'{int(msg_index, 2)}')
+                    if(msg_chunk == received_msg_size and int(msg_index,2) == list_pointer):
                         break
                 fail_count += 1
                 print(f'fail_count {fail_count}/10')
@@ -162,11 +168,15 @@ def sender_thread():
 def receiver_thread():
     try:
         while True:
-            while (received_protocol := receive_protocol(float('inf'))) == 'HANDSHAKE':
-                received_chunk = receive_msg_size()
-                received_index = receive_bit(8)
-                send_protocol('HANDSHAKE REPLY')
-                send_msg_size(received_chunk)
+            while (received_protocol := receive_protocol(float('inf'))) == ('HANDSHAKE' or 'RESEND'):
+                if received_protocol == 'HANDSHAKE':
+                    received_chunk = receive_msg_size()
+                    received_index = receive_bit(8)
+                    send_protocol('HANDSHAKE REPLY')
+                    send_msg_size(received_chunk)
+                elif received_protocol == 'RESEND':
+                    recived_chunk = receive_bit(8)
+                    laser(received_chunk)
             if(received_protocol == 'MSG RECEIVE'):
                 received_message = ''
                 received_message = [0] * received_chunk
